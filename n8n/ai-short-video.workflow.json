@@ -1,0 +1,429 @@
+{
+  "name": "AI Short Video — Pixabay + ElevenLabs + Creatomate",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "ai-short-video/generate",
+        "respond": false,
+        "options": {
+          "responseData": "",
+          "responseCode": 200
+        }
+      },
+      "id": "Webhook_Topic_In",
+      "name": "Webhook — Topic In",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [260, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "authentication": "none",
+        "jsonParameters": true,
+        "options": {},
+        "headers": {
+          "parameters": [
+            { "name": "Authorization", "value": "Bearer {{YOUR_OPENAI_API_KEY}}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "bodyParametersJson": "={\n  \"model\": \"gpt-4o\",\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"You write short, vertical video scripts. Return ONLY valid JSON: {\\\"scenes\\\":[{\\\"narration\\\":\\\"…\\\",\\\"keywords\\\":[\\\"…\\\",\\\"…\\\"],\\\"duration\\\":4}…]} Requirements: 4–6 scenes; each 3–6 seconds; narration concise, present-tense, energetic; keywords are concrete visual search terms; safe-for-work; avoid brands. Topic: {{$json.topic}}\"\n    }\n  ],\n  \"temperature\": 0.6\n}"
+      },
+      "id": "HTTP_OpenAI_Script",
+      "name": "OpenAI (Chat) — Script",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [560, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "const raw = $json.choices?.[0]?.message?.content ?? $json.data?.choices?.[0]?.message?.content ?? '';\nreturn [{ json: { scriptJson: raw } }];"
+      },
+      "id": "Code_Extract_Script",
+      "name": "Code — Extract Script JSON",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [820, 300]
+    },
+    {
+      "parameters": {
+        "action": "parse",
+        "specifyInput": "key",
+        "jsonInputKey": "scriptJson",
+        "renameKey": "scaffold",
+        "keepOnlySet": false
+      },
+      "id": "JSON_Parse_Script",
+      "name": "JSON Parse — Script JSON",
+      "type": "n8n-nodes-base.jsonParse",
+      "typeVersion": 2,
+      "position": [1060, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "const obj = $json.scaffold?.scenes ? $json.scaffold : ($json.scenes ? $json : { scenes: [] });\nconst scenes = Array.isArray(obj.scenes) ? obj.scenes : [];\nconst sanitized = scenes.map((s) => ({\n  narration: String(s.narration || '').slice(0, 400),\n  keywords: Array.isArray(s.keywords) ? s.keywords.map(String) : String(s.keywords || '').split(/[,\n]/).map(x=>x.trim()).filter(Boolean),\n  duration: Number.isFinite(Number(s.duration)) ? Math.max(3, Math.min(6, Number(s.duration))) : 4,\n}));\nconst fullNarration = sanitized.map(s => s.narration).join(' \n\n ');\nconst totalSeconds = sanitized.reduce((a, s) => a + (s.duration || 4), 0);\nreturn [{ json: { scenes: sanitized, fullNarration, totalSeconds } }];"
+      },
+      "id": "Code_Build_Full_Narration",
+      "name": "Code — Build full narration & timing",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 300]
+    },
+    {
+      "parameters": {
+        "operation": "splitOutItems",
+        "fieldToSplitOut": "scenes",
+        "options": {}
+      },
+      "id": "ItemLists_Split_Scenes",
+      "name": "Item Lists — Split Scenes",
+      "type": "n8n-nodes-base.itemLists",
+      "typeVersion": 3,
+      "position": [1620, 300]
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "SplitInBatches_Scenes",
+      "name": "Split In Batches — Scenes Loop",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 2,
+      "position": [1860, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://pixabay.com/api/videos/?key={{YOUR_PIXABAY_API_KEY}}&q={{$json.keywords.join('+')}}&per_page=5",
+        "jsonParameters": true,
+        "options": {}
+      },
+      "id": "HTTP_Pixabay_Videos",
+      "name": "Pixabay — Search Videos",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [2120, 220]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [],
+          "number": [],
+          "string": [],
+          "expression": [
+            {
+              "value1": "={{$json.totalHits > 0}}"
+            }
+          ]
+        }
+      },
+      "id": "IF_Has_Video",
+      "name": "IF — Has Video Hits?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [2360, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "const hits = $json.hits || [];\nconst url = hits[0]?.videos?.medium?.url || hits[0]?.videos?.large?.url || hits[0]?.videos?.small?.url || null;\nreturn [{ json: { ...$json, mediaUrl: url } }];"
+      },
+      "id": "Code_Pick_Video_URL",
+      "name": "Code — Pick Video URL",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2600, 180]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://pixabay.com/api/?key={{YOUR_PIXABAY_API_KEY}}&q={{$json.keywords.join('+')}}&image_type=photo&orientation=vertical&per_page=5",
+        "jsonParameters": true,
+        "options": {}
+      },
+      "id": "HTTP_Pixabay_Images",
+      "name": "Pixabay — Search Images",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [2600, 420]
+    },
+    {
+      "parameters": {
+        "functionCode": "const hits = $json.hits || [];\nconst url = hits[0]?.largeImageURL || hits[0]?.webformatURL || null;\nreturn [{ json: { ...$json, mediaUrl: url } }];"
+      },
+      "id": "Code_Pick_Image_URL",
+      "name": "Code — Pick Image URL",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2840, 420]
+    },
+    {
+      "parameters": {
+        "functionCode": "const { narration, duration, mediaUrl } = $json;\nconst existing = $items('Collect_Scenes', 0, 0)?.json?.scenesCollected || [];\nconst next = existing.concat([{ text: narration, duration, mediaUrl }]);\nreturn [{ json: { scenesCollected: next } }];"
+      },
+      "id": "Collect_Scenes",
+      "name": "Code — Collect Scene Items",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3080, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "return $items();"
+      },
+      "id": "Next_Batch",
+      "name": "Split In Batches — Next",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3320, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "const all = $items('Collect_Scenes');\nlet last = all[all.length - 1]?.json?.scenesCollected || [];\nconst base = $items('Code — Build full narration & timing', 0, 0)[0].json;\nreturn [{ json: { scenes: last, fullNarration: base.fullNarration, totalSeconds: base.totalSeconds } }];"
+      },
+      "id": "Assemble_Final",
+      "name": "Code — Assemble Final",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3560, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.elevenlabs.io/v1/text-to-speech/21m00Tcm4TlvDq8ikWAM/stream",
+        "responseFormat": "file",
+        "jsonParameters": true,
+        "options": {
+          "useQueryString": false
+        },
+        "headers": {
+          "parameters": [
+            { "name": "xi-api-key", "value": "{{YOUR_ELEVENLABS_API_KEY}}" },
+            { "name": "accept", "value": "audio/mpeg" },
+            { "name": "content-type", "value": "application/json" }
+          ]
+        },
+        "bodyParametersJson": "={ \n  \"text\": {{$json.fullNarration}}, \n  \"voice_settings\": { \n    \"stability\": 0.5, \n    \"similarity_boost\": 0.75 \n  } \n}"
+      },
+      "id": "HTTP_ElevenLabs_TTS",
+      "name": "HTTP — ElevenLabs TTS (single track)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [3800, 300]
+    },
+    {
+      "parameters": {
+        "operation": "upload",
+        "binaryPropertyName": "data",
+        "bucketName": "YOUR_S3_BUCKET",
+        "fileName": "=tts/{{Date.now()}}.mp3",
+        "options": {
+          "acl": "public-read"
+        }
+      },
+      "id": "S3_Upload_Audio",
+      "name": "AWS S3 — Upload Audio (optional)",
+      "type": "n8n-nodes-base.amazonS3",
+      "typeVersion": 3,
+      "position": [4040, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "const url = $json.location || $json.url || $json.Location || null;\nconst base = $items('Assemble_Final', 0, 0)[0].json;\nreturn [{ json: { ...base, audioUrl: url } }];"
+      },
+      "id": "Set_Audio_URL",
+      "name": "Code — Set audioUrl",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [4280, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.creatomate.com/v1/renders",
+        "authentication": "none",
+        "jsonParameters": true,
+        "options": {},
+        "headers": {
+          "parameters": [
+            { "name": "Authorization", "value": "Bearer {{YOUR_CREATOMATE_API_KEY}}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "bodyParametersJson": "={\n  \"template_id\": \"YOUR_STORYTELLING_TEMPLATE_ID\",\n  \"webhook_url\": \"https://YOUR_DOMAIN.com/api/creatomate/callback\",\n  \"modifications\": [\n    { \"name\": \"slides\", \"value\": {{$json.scenes.map(s => ({ text: s.text, media_url: s.mediaUrl, duration: s.duration }))}} },\n    { \"name\": \"global_audio_url\", \"value\": \"{{$json.audioUrl}}\" },\n    { \"name\": \"aspect_ratio\", \"value\": \"9:16\" }\n  ]\n}"
+      },
+      "id": "HTTP_Creatomate_Create",
+      "name": "HTTP — Creatomate: Create Render",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [4520, 300]
+    },
+    {
+      "parameters": {
+        "responseBody": "={ \n  \"status\": \"accepted\", \n  \"message\": \"Rendering started\" \n}",
+        "responseData": "json",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "Respond_To_Webhook",
+      "name": "Respond to Webhook — Acknowledge",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [4760, 300]
+    }
+  ],
+  "connections": {
+    "OpenAI (Chat) — Script": {
+      "main": [
+        [
+          { "node": "Code — Extract Script JSON", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Webhook — Topic In": {
+      "main": [
+        [
+          { "node": "OpenAI (Chat) — Script", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Code — Extract Script JSON": {
+      "main": [
+        [
+          { "node": "JSON Parse — Script JSON", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "JSON Parse — Script JSON": {
+      "main": [
+        [
+          { "node": "Code — Build full narration & timing", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Code — Build full narration & timing": {
+      "main": [
+        [
+          { "node": "Item Lists — Split Scenes", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Item Lists — Split Scenes": {
+      "main": [
+        [
+          { "node": "Split In Batches — Scenes Loop", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Split In Batches — Scenes Loop": {
+      "main": [
+        [
+          { "node": "Pixabay — Search Videos", "type": "main", "index": 0 }
+        ],
+        [
+          { "node": "Split In Batches — Next", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Pixabay — Search Videos": {
+      "main": [
+        [
+          { "node": "IF — Has Video Hits?", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "IF — Has Video Hits?": {
+      "main": [
+        [
+          { "node": "Code — Pick Video URL", "type": "main", "index": 0 }
+        ],
+        [
+          { "node": "Pixabay — Search Images", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Pixabay — Search Images": {
+      "main": [
+        [
+          { "node": "Code — Pick Image URL", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Code — Pick Video URL": {
+      "main": [
+        [
+          { "node": "Code — Collect Scene Items", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Code — Pick Image URL": {
+      "main": [
+        [
+          { "node": "Code — Collect Scene Items", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Code — Collect Scene Items": {
+      "main": [
+        [
+          { "node": "Split In Batches — Scenes Loop", "type": "main", "index": 1 }
+        ]
+      ]
+    },
+    "Split In Batches — Next": {
+      "main": [
+        [
+          { "node": "Code — Assemble Final", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Code — Assemble Final": {
+      "main": [
+        [
+          { "node": "HTTP — ElevenLabs TTS (single track)", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "HTTP — ElevenLabs TTS (single track)": {
+      "main": [
+        [
+          { "node": "AWS S3 — Upload Audio (optional)", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "AWS S3 — Upload Audio (optional)": {
+      "main": [
+        [
+          { "node": "Code — Set audioUrl", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Code — Set audioUrl": {
+      "main": [
+        [
+          { "node": "HTTP — Creatomate: Create Render", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "HTTP — Creatomate: Create Render": {
+      "main": [
+        [
+          { "node": "Respond to Webhook — Acknowledge", "type": "main", "index": 0 }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "timezone": "UTC"
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsNote": "Assign OpenAI, Pixabay, ElevenLabs, Creatomate, and AWS S3 credentials after import. Replace placeholders in headers and body where noted.",
+    "instructions": "Webhook path: ai-short-video/generate. Ensure your domain is allowed in n8n Cloud. Update template_id and webhook_url for Creatomate."
+  }
+}
