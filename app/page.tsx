@@ -1,103 +1,211 @@
-import Image from "next/image";
+'use client';
+
+import { useState } from 'react';
+import axios from 'axios';
+import { Video, Loader2, Download, Play, Sparkles } from 'lucide-react';
 
 export default function Home() {
-  return (
-    <div className="font-sans grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="font-mono list-inside list-decimal text-sm/6 text-center sm:text-left">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] font-mono font-semibold px-1 py-0.5 rounded">
-              app/page.tsx
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
+  const [topic, setTopic] = useState('');
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [videoUrl, setVideoUrl] = useState('');
+  const [error, setError] = useState('');
+  const [status, setStatus] = useState('');
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+  const handleGenerate = async () => {
+    if (!topic.trim()) {
+      setError('Please enter a topic');
+      return;
+    }
+
+    setIsGenerating(true);
+    setError('');
+    setVideoUrl('');
+    setStatus('Sending your topic to the AI workflow...');
+
+    try {
+      const n8nWebhookUrl = process.env.NEXT_PUBLIC_N8N_WEBHOOK_URL || '';
+      
+      if (!n8nWebhookUrl) {
+        throw new Error('N8N webhook URL is not configured. Please set NEXT_PUBLIC_N8N_WEBHOOK_URL in your .env.local file');
+      }
+
+      const response = await axios.post(n8nWebhookUrl, {
+        topic: topic.trim(),
+      });
+
+      if (response.data && response.data.videoUrl) {
+        setVideoUrl(response.data.videoUrl);
+        setStatus('Video generated successfully!');
+      } else {
+        throw new Error('No video URL received from the workflow');
+      }
+    } catch (err: any) {
+      console.error('Error generating video:', err);
+      setError(err.message || 'Failed to generate video. Please check your n8n workflow and try again.');
+      setStatus('');
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  const handleDownload = () => {
+    if (videoUrl) {
+      window.open(videoUrl, '_blank');
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-purple-50 via-white to-blue-50 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900">
+      <div className="container mx-auto px-4 py-12">
+        <div className="text-center mb-12">
+          <div className="flex items-center justify-center gap-3 mb-4">
+            <Video className="w-12 h-12 text-purple-600 dark:text-purple-400" />
+            <h1 className="text-5xl font-bold text-gray-900 dark:text-white">
+              Clipoo
+            </h1>
+          </div>
+          <p className="text-xl text-gray-600 dark:text-gray-300 max-w-2xl mx-auto">
+            AI-Powered Short Video Generator
+          </p>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
+            Enter any topic and watch AI create a professional short-form video with script, voiceover, visuals, and captions
+          </p>
         </div>
-      </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
+
+        <div className="max-w-3xl mx-auto">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl p-8">
+            <div className="mb-6">
+              <label htmlFor="topic" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                What should your video be about?
+              </label>
+              <div className="flex gap-3">
+                <input
+                  id="topic"
+                  type="text"
+                  value={topic}
+                  onChange={(e) => setTopic(e.target.value)}
+                  onKeyPress={(e) => e.key === 'Enter' && handleGenerate()}
+                  placeholder="e.g., The history of artificial intelligence, How to make coffee, Amazing facts about space..."
+                  className="flex-1 px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent dark:bg-gray-700 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 text-base"
+                  disabled={isGenerating}
+                />
+                <button
+                  onClick={handleGenerate}
+                  disabled={isGenerating || !topic.trim()}
+                  className="px-6 py-3 bg-gradient-to-r from-purple-600 to-blue-600 text-white rounded-lg font-medium hover:from-purple-700 hover:to-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 flex items-center gap-2 whitespace-nowrap"
+                >
+                  {isGenerating ? (
+                    <>
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                      <span>Generating...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-5 h-5" />
+                      <span>Generate</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+
+            {status && !error && (
+              <div className="mb-6 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+                <p className="text-blue-800 dark:text-blue-300 text-sm flex items-center gap-2">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  {status}
+                </p>
+              </div>
+            )}
+
+            {error && (
+              <div className="mb-6 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+                <p className="text-red-800 dark:text-red-300 text-sm">{error}</p>
+              </div>
+            )}
+
+            {isGenerating && (
+              <div className="py-12 text-center">
+                <Loader2 className="w-16 h-16 text-purple-600 animate-spin mx-auto mb-4" />
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+                  Creating Your Video...
+                </h3>
+                <div className="space-y-2 text-sm text-gray-600 dark:text-gray-400">
+                  <p>✨ Generating AI script with GPT-4o</p>
+                  <p>🎬 Finding perfect stock footage</p>
+                  <p>🎙️ Creating voiceover with ElevenLabs</p>
+                  <p>📝 Adding auto-generated captions</p>
+                  <p>🎥 Rendering video with Creatomate</p>
+                </div>
+                <p className="text-xs text-gray-500 dark:text-gray-500 mt-6">
+                  This usually takes 30-90 seconds
+                </p>
+              </div>
+            )}
+
+            {videoUrl && !isGenerating && (
+              <div className="mt-6">
+                <div className="bg-gray-50 dark:bg-gray-900 rounded-lg p-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+                      <Play className="w-5 h-5 text-green-600" />
+                      Your Video is Ready!
+                    </h3>
+                    <button
+                      onClick={handleDownload}
+                      className="px-4 py-2 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 transition-colors flex items-center gap-2"
+                    >
+                      <Download className="w-4 h-4" />
+                      Download
+                    </button>
+                  </div>
+                  
+                  <div className="bg-black rounded-lg overflow-hidden aspect-[9/16] max-w-xs mx-auto">
+                    <video
+                      src={videoUrl}
+                      controls
+                      className="w-full h-full"
+                      preload="metadata"
+                    >
+                      Your browser does not support the video tag.
+                    </video>
+                  </div>
+
+                  <div className="mt-4 p-3 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Video URL:</p>
+                    <a
+                      href={videoUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-sm text-purple-600 dark:text-purple-400 hover:underline break-all"
+                    >
+                      {videoUrl}
+                    </a>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="mt-8 grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow-lg">
+              <div className="text-2xl mb-2">🤖</div>
+              <h4 className="font-semibold text-gray-900 dark:text-white mb-1">AI-Powered</h4>
+              <p className="text-xs text-gray-600 dark:text-gray-400">GPT-4o generates engaging scripts automatically</p>
+            </div>
+            <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow-lg">
+              <div className="text-2xl mb-2">🎙️</div>
+              <h4 className="font-semibold text-gray-900 dark:text-white mb-1">Pro Voiceovers</h4>
+              <p className="text-xs text-gray-600 dark:text-gray-400">ElevenLabs creates realistic narration</p>
+            </div>
+            <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow-lg">
+              <div className="text-2xl mb-2">🎬</div>
+              <h4 className="font-semibold text-gray-900 dark:text-white mb-1">Studio Quality</h4>
+              <p className="text-xs text-gray-600 dark:text-gray-400">Professional rendering with Creatomate</p>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
