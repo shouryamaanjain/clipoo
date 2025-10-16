@@ -1,0 +1,501 @@
+{
+  "name": "Clipoo - AI Video Generator (Hume/Pexels/Creatomate)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "clipoo-generate",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [-1200, 0],
+      "id": "d5a2f547-d625-4f28-9c87-a6f5bbf95388"
+    },
+    {
+      "parameters": {
+        "keepOnlySet": true,
+        "values": {
+          "string": [
+            {
+              "name": "topic",
+              "value": "={{ $json.body?.topic ?? $json.topic ?? '' }}"
+            },
+            {
+              "name": "voice",
+              "value": "={{ $json.body?.voice ?? 'Ava Song' }}"
+            }
+          ],
+          "number": [
+            {
+              "name": "sceneCount",
+              "value": "={{ $json.body?.sceneCount ?? 4 }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Extract Input",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [-960, 0],
+      "id": "d8f9a8a1-6f8d-4d60-9b9d-7a6f2c1c4f23"
+    },
+    {
+      "parameters": {
+        "mode": "chat",
+        "model": "gpt-4o-mini",
+        "messages": [
+          {
+            "role": "system",
+            "content": "You are a professional short-form video scriptwriter. Always respond with a valid JSON object following the requested schema without additional explanations."
+          },
+          {
+            "role": "user",
+            "content": "Create a JSON object with the following schema: {\"scenes\": [{\"sceneNumber\": number, \"narration\": string, \"visualKeywords\": [string, ...], \"duration\": number}]}. Write {{$json.sceneCount}} engaging scenes (4-6 seconds each) for a vertical short-form video about the topic \"{{$json.topic}}\". Narration should be 12-18 words, and include at least three relevant visualKeywords per scene."
+          }
+        ],
+        "temperature": 0.7,
+        "maxTokens": 1200,
+        "responseFormat": "json_object"
+      },
+      "name": "Generate Script",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 2,
+      "position": [-720, 0],
+      "id": "4fdd517d-8d3b-4634-8ee5-d98f3a6fe1d4",
+      "credentials": {
+        "openAiApi": {
+          "id": "",
+          "name": "OpenAI API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "const raw = $json.choices?.[0]?.message?.content ?? $json.data ?? $json.response ?? '';\nif (!raw) {\n  throw new Error('No script returned from language model.');\n}\nlet content = raw.trim();\nif (content.startsWith('```')) {\n  const lines = content.split('\\n');\n  if (lines[0].startsWith('```')) {\n    lines.shift();\n  }\n  if (lines[lines.length - 1].startsWith('```')) {\n    lines.pop();\n  }\n  content = lines.join('\\n').trim();\n}\nconst parsed = JSON.parse(content);\nif (!Array.isArray(parsed.scenes)) {\n  throw new Error('Parsed script is missing scenes array.');\n}\nreturn parsed.scenes.map((scene, index) => ({\n  json: {\n    sceneNumber: scene.sceneNumber ?? index + 1,\n    narration: scene.narration,\n    visualKeywords: Array.isArray(scene.visualKeywords) ? scene.visualKeywords : [],\n    duration: Number(scene.duration ?? 6)\n  }\n}));"
+      },
+      "name": "Parse Script JSON",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [-480, 0],
+      "id": "8bca5d83-1e7d-4a2a-8a49-14e60c7390b8"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://api.pexels.com/videos/search",
+        "responseFormat": "json",
+        "queryParametersUi": {
+          "parameter": [
+            {
+              "name": "query",
+              "value": "={{ $json.visualKeywords.length ? $json.visualKeywords.join(' ') : $json.narration }}"
+            },
+            {
+              "name": "per_page",
+              "value": "5"
+            },
+            {
+              "name": "orientation",
+              "value": "portrait"
+            }
+          ]
+        }
+      },
+      "name": "Search Pexels Video",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 2,
+      "position": [-240, 0],
+      "id": "2f1c0bd2-3856-44d4-8803-9cdb63dc4da2",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "",
+          "name": "Pexels API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "const scene = $items('Parse Script JSON', 0, $itemIndex).json;\nconst videos = Array.isArray($json.videos) ? $json.videos.slice() : [];\nif (!videos.length) {\n  throw new Error(`No videos returned from Pexels for scene ${scene.sceneNumber}.`);\n}\nvideos.sort((a, b) => (b?.duration || 0) - (a?.duration || 0));\nconst candidate = videos[0];\nconst files = Array.isArray(candidate?.video_files) ? candidate.video_files.slice() : [];\nif (!files.length) {\n  throw new Error(`No video files found for scene ${scene.sceneNumber}.`);\n}\nfiles.sort((a, b) => (b?.height || 0) - (a?.height || 0));\nconst selected = files.find(file => (file.width || 0) >= 720 && (file.height || 0) >= 1280) || files[0];\nif (!selected?.link) {\n  throw new Error(`No usable video file found for scene ${scene.sceneNumber}.`);\n}\nconst meta = $items('Extract Input', 0).json;\nreturn {\n  json: {\n    sceneNumber: scene.sceneNumber,\n    narration: scene.narration,\n    visualKeywords: scene.visualKeywords,\n    duration: scene.duration,\n    videoUrl: selected.link,\n    videoFile: selected,\n    voice: meta.voice\n  }\n};"
+      },
+      "name": "Select Video Asset",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [0, 0],
+      "id": "61200b8e-4c0a-4edd-b4d9-3a12f07a6059"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.hume.ai/v0/tts/synthesize",
+        "responseFormat": "json",
+        "jsonParameters": true,
+        "jsonBody": {
+          "utterances": [
+            {
+              "text": "={{ $json.narration }}",
+              "voice": {
+                "name": "={{ $json.voice || 'Ava Song' }}"
+              }
+            }
+          ],
+          "format": {
+            "type": "mp3"
+          },
+          "split_utterances": false,
+          "strip_headers": true
+        }
+      },
+      "name": "Generate Voiceover",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 2,
+      "position": [240, 0],
+      "id": "110d513b-b323-4fa1-8bbb-f8b7ee356f7f",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "",
+          "name": "Hume API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "const scene = $items('Select Video Asset', 0, $itemIndex).json;\nconst generations = Array.isArray($json.generations) ? $json.generations : [];\nif (!generations.length) {\n  throw new Error(`No audio returned for scene ${scene.sceneNumber}.`);\n}\nconst first = generations[0];\nconst audioData = first?.audio || '';\nif (!audioData) {\n  throw new Error(`Missing audio payload for scene ${scene.sceneNumber}.`);\n}\nconst formatType = (first?.format?.type || 'mp3').toLowerCase();\nlet mimeType = 'audio/mpeg';\nif (formatType === 'wav') {\n  mimeType = 'audio/wav';\n} else if (formatType === 'flac') {\n  mimeType = 'audio/flac';\n}\nconst dataUri = 'data:' + mimeType + ';base64,' + audioData;\nreturn {\n  json: {\n    sceneNumber: scene.sceneNumber,\n    narration: scene.narration,\n    visualKeywords: scene.visualKeywords,\n    duration: scene.duration,\n    videoUrl: scene.videoUrl,\n    audioSource: dataUri\n  }\n};"
+      },
+      "name": "Combine Scene Assets",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [480, 0],
+      "id": "7a79d5f5-7036-4b0d-a647-59c5b97c9dfa"
+    },
+    {
+      "parameters": {
+        "functionCode": "const scenes = items.map(item => item.json);\nconst meta = $items('Extract Input', 0).json;\nreturn [\n  {\n    json: {\n      scenes,\n      topic: meta.topic\n    }\n  }\n];"
+      },
+      "name": "Assemble Scenes",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [720, 0],
+      "id": "4d5fd9b9-67ec-45b2-a354-29494d831398"
+    },
+    {
+      "parameters": {
+        "functionCode": "const data = items[0].json;\nconst scenes = Array.isArray(data.scenes) ? data.scenes : [];\nconst modifications = {};\nscenes.forEach((scene, index) => {\n  const idx = index + 1;\n  modifications[`Text-${idx}.text`] = scene.narration;\n  modifications[`Background-${idx}.source`] = scene.videoUrl;\n  modifications[`Audio-${idx}.source`] = scene.audioSource;\n});\nconst totalDuration = scenes.reduce((sum, scene) => sum + (Number(scene.duration) || 0), 0);\nreturn [\n  {\n    json: {\n      template_id: 'c7b8df98-6706-4b90-969f-657bffdc54e1',\n      modifications,\n      totalDuration,\n      topic: data.topic\n    }\n  }\n];"
+      },
+      "name": "Build Creatomate Payload",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [960, 0],
+      "id": "d60f12ce-7fb4-4e67-8abf-24c616a1e9f2"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.creatomate.com/v2/renders",
+        "responseFormat": "json",
+        "jsonParameters": true,
+        "jsonBody": {
+          "template_id": "={{ $json.template_id }}",
+          "modifications": "={{ $json.modifications }}",
+          "metadata": "={{ $json.topic || '' }}"
+        }
+      },
+      "name": "Create Creatomate Render",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 2,
+      "position": [1200, 0],
+      "id": "6d639c07-13a8-4f13-bf7a-6be2ebd0001f",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "",
+          "name": "Creatomate API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "amount": 5,
+        "unit": "seconds"
+      },
+      "name": "Wait For Render",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [1440, 0],
+      "id": "0e15a8ad-53ec-440d-8310-0d6c2a3f9b1d"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://api.creatomate.com/v2/renders/{{$json.id}}",
+        "responseFormat": "json"
+      },
+      "name": "Check Render Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 2,
+      "position": [1680, 0],
+      "id": "f0a78b19-0fb8-4b4a-bb3c-6d9b6d887c63",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "",
+          "name": "Creatomate API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.status }}",
+              "operation": "equal",
+              "value2": "succeeded"
+            }
+          ]
+        }
+      },
+      "name": "Render Succeeded?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1920, 0],
+      "id": "534a53d5-e667-4a8d-bc04-69a86f22188d"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.status }}",
+              "operation": "equal",
+              "value2": "failed"
+            }
+          ]
+        }
+      },
+      "name": "Render Failed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [2160, -120],
+      "id": "9d4a0c07-9e2f-4e38-ac3d-409918645c54"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { status: $json.status, videoUrl: $json.url, snapshotUrl: $json.snapshot_url, renderId: $json.id } }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "name": "Respond Success",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [2160, 120],
+      "id": "2c9b6ea1-3f61-44fb-8a2c-1602043614d9"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { status: $json.status, message: $json.error_message || 'Render failed', renderId: $json.id } }}",
+        "options": {
+          "responseCode": 500
+        }
+      },
+      "name": "Respond Failure",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [2400, -240],
+      "id": "1f104cc2-fd67-4ff7-b180-97afa04287c1"
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Extract Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Input": {
+      "main": [
+        [
+          {
+            "node": "Generate Script",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Script": {
+      "main": [
+        [
+          {
+            "node": "Parse Script JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Script JSON": {
+      "main": [
+        [
+          {
+            "node": "Search Pexels Video",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search Pexels Video": {
+      "main": [
+        [
+          {
+            "node": "Select Video Asset",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Select Video Asset": {
+      "main": [
+        [
+          {
+            "node": "Generate Voiceover",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Voiceover": {
+      "main": [
+        [
+          {
+            "node": "Combine Scene Assets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Combine Scene Assets": {
+      "main": [
+        [
+          {
+            "node": "Assemble Scenes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assemble Scenes": {
+      "main": [
+        [
+          {
+            "node": "Build Creatomate Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Creatomate Payload": {
+      "main": [
+        [
+          {
+            "node": "Create Creatomate Render",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Creatomate Render": {
+      "main": [
+        [
+          {
+            "node": "Wait For Render",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait For Render": {
+      "main": [
+        [
+          {
+            "node": "Check Render Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Render Status": {
+      "main": [
+        [
+          {
+            "node": "Render Succeeded?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Render Succeeded?": {
+      "main": [
+        [
+          {
+            "node": "Respond Success",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Render Failed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Render Failed?": {
+      "main": [
+        [
+          {
+            "node": "Respond Failure",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wait For Render",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {},
+  "id": "ClipooWorkflowHumePexelsCreatomate",
+  "pinData": {},
+  "meta": {
+    "template": "n8n"
+  },
+  "tags": []
+}
