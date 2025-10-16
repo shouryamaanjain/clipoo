@@ -1,0 +1,502 @@
+{
+  "name": "AI Short Video Generator",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "video-generator",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "webhookId": "video-generator"
+    },
+    {
+      "parameters": {
+        "model": "gpt-4o",
+        "messages": {
+          "values": [
+            {
+              "content": "=You are a creative video script writer. Create an engaging script for a 30-60 second short-form vertical video about: {{ $json.body.topic }}\n\nFormat your response as a JSON array with exactly 4 scenes. Each scene should have:\n- \"scene\": scene number (1-4)\n- \"narration\": what the voiceover says (15-30 words)\n- \"visual_keywords\": 3-5 keywords to search for stock footage (comma-separated)\n- \"caption\": short text overlay (5-10 words max)\n\nMake it engaging, informative, and perfect for TikTok/Instagram/YouTube Shorts.\n\nExample format:\n[\n  {\n    \"scene\": 1,\n    \"narration\": \"Did you know that honey never spoils? Archaeologists have found 3000-year-old honey that's still edible!\",\n    \"visual_keywords\": \"honey, jar, ancient, archaeology\",\n    \"caption\": \"Honey Never Expires! 🍯\"\n  },\n  ...\n]\n\nReturn ONLY the JSON array, no other text."
+            }
+          ]
+        },
+        "options": {
+          "temperature": 0.8,
+          "maxTokens": 1000
+        }
+      },
+      "id": "openai-gpt",
+      "name": "Generate Script with GPT-4o",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1,
+      "position": [460, 300],
+      "credentials": {
+        "openAiApi": {
+          "id": "openai-credentials",
+          "name": "OpenAI API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $input.first().json.choices[0].message.content;\n\n// Extract JSON from response\nlet scriptData;\ntry {\n  // Try to parse directly\n  scriptData = JSON.parse(response);\n} catch (e) {\n  // If fails, try to extract JSON from markdown code blocks\n  const jsonMatch = response.match(/```(?:json)?\\n?([\\s\\S]*?)```/);\n  if (jsonMatch) {\n    scriptData = JSON.parse(jsonMatch[1]);\n  } else {\n    // Try to find array in the text\n    const arrayMatch = response.match(/\\[[\\s\\S]*\\]/);\n    if (arrayMatch) {\n      scriptData = JSON.parse(arrayMatch[0]);\n    } else {\n      throw new Error('Could not parse script JSON from GPT response');\n    }\n  }\n}\n\n// Validate script has 4 scenes\nif (!Array.isArray(scriptData) || scriptData.length !== 4) {\n  throw new Error('Script must have exactly 4 scenes');\n}\n\n// Return each scene as separate item for processing\nreturn scriptData.map(scene => ({\n  json: {\n    scene: scene.scene,\n    narration: scene.narration,\n    visual_keywords: scene.visual_keywords,\n    caption: scene.caption,\n    allScenes: scriptData\n  }\n}));"
+      },
+      "id": "parse-script",
+      "name": "Parse Script JSON",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "url": "https://api.pexels.com/videos/search",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "query",
+              "value": "={{ $json.visual_keywords }}"
+            },
+            {
+              "name": "per_page",
+              "value": "5"
+            },
+            {
+              "name": "orientation",
+              "value": "portrait"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "pexels-search",
+      "name": "Search Pexels Videos",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [900, 300],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "pexels-credentials",
+          "name": "Pexels API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const pexelsResponse = $input.first().json;\nconst sceneData = $input.first().json;\n\n// Get the first HD video from results\nconst videos = pexelsResponse.videos || [];\nif (videos.length === 0) {\n  throw new Error(`No videos found for keywords: ${sceneData.visual_keywords}`);\n}\n\nconst video = videos[0];\nconst hdFile = video.video_files.find(f => f.quality === 'hd' && f.height >= 720) || video.video_files[0];\n\nreturn [{\n  json: {\n    scene: sceneData.scene,\n    narration: sceneData.narration,\n    caption: sceneData.caption,\n    videoUrl: hdFile.link,\n    allScenes: sceneData.allScenes\n  }\n}];"
+      },
+      "id": "extract-video-url",
+      "name": "Extract Video URL",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1120, 300]
+    },
+    {
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "destinationFieldName": "scenes",
+        "options": {}
+      },
+      "id": "aggregate-scenes",
+      "name": "Aggregate All Scenes",
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [1340, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const scenes = $input.first().json.scenes;\n\n// Combine all narrations into one text for voiceover\nconst fullNarration = scenes.map(s => s.narration).join(' ');\n\nreturn [{\n  json: {\n    fullNarration,\n    scenes\n  }\n}];"
+      },
+      "id": "prepare-voiceover",
+      "name": "Prepare Voiceover Text",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1560, 300]
+    },
+    {
+      "parameters": {
+        "url": "https://api.hume.ai/v0/tts",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"text\": \"{{ $json.fullNarration }}\",\n  \"voice\": \"ITO\",\n  \"format\": \"mp3\"\n}",
+        "options": {}
+      },
+      "id": "hume-tts",
+      "name": "Generate Voiceover (Hume AI)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1780, 300],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "hume-credentials",
+          "name": "Hume AI API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "=https://api.hume.ai/v0/tts/{{ $json.job_id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "wait-for-audio",
+      "name": "Wait for Audio Generation",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [2000, 300],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "hume-credentials",
+          "name": "Hume AI API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "amount": 5,
+        "unit": "seconds"
+      },
+      "id": "wait-5s",
+      "name": "Wait 5 Seconds",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [1900, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const audioResponse = $input.first().json;\nconst previousData = $input.first().json;\n\nif (audioResponse.status !== 'completed') {\n  throw new Error('Audio generation not complete yet');\n}\n\nreturn [{\n  json: {\n    scenes: previousData.scenes,\n    audioUrl: audioResponse.url\n  }\n}];"
+      },
+      "id": "extract-audio-url",
+      "name": "Extract Audio URL",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2220, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\nconst scenes = data.scenes;\nconst audioUrl = data.audioUrl;\n\n// Build modifications object for Creatomate template\nconst modifications = {};\n\n// Add audio\nmodifications['Voiceover.source'] = audioUrl;\n\n// Add each scene's video and text\nscenes.forEach((scene, index) => {\n  const sceneNum = index + 1;\n  modifications[`Background-${sceneNum}.source`] = scene.videoUrl;\n  modifications[`Text-${sceneNum}.text`] = scene.caption;\n});\n\nreturn [{\n  json: {\n    modifications,\n    scenes,\n    audioUrl\n  }\n}];"
+      },
+      "id": "prepare-creatomate",
+      "name": "Prepare Creatomate Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2440, 300]
+    },
+    {
+      "parameters": {
+        "url": "https://api.creatomate.com/v2/renders",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"template_id\": \"YOUR_TEMPLATE_ID\",\n  \"modifications\": {{ $json.modifications }}\n}",
+        "options": {}
+      },
+      "id": "creatomate-render",
+      "name": "Render Video (Creatomate)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [2660, 300],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "creatomate-credentials",
+          "name": "Creatomate API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "amount": 10,
+        "unit": "seconds"
+      },
+      "id": "wait-10s",
+      "name": "Wait 10 Seconds",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [2880, 300]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.creatomate.com/v2/renders/{{ $json.id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {}
+      },
+      "id": "check-render-status",
+      "name": "Check Render Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [3100, 300],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "creatomate-credentials",
+          "name": "Creatomate API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.status }}",
+              "operation": "equals",
+              "value2": "succeeded"
+            }
+          ]
+        }
+      },
+      "id": "if-render-complete",
+      "name": "If Render Complete",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [3320, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"success\": true,\n  \"videoUrl\": \"{{ $json.url }}\",\n  \"message\": \"Video generated successfully!\"\n}",
+        "options": {}
+      },
+      "id": "webhook-response-success",
+      "name": "Webhook Response Success",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [3540, 200]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"success\": false,\n  \"message\": \"Video is still rendering. Status: {{ $json.status }}\",\n  \"renderId\": \"{{ $json.id }}\"\n}",
+        "options": {
+          "responseCode": 202
+        }
+      },
+      "id": "webhook-response-pending",
+      "name": "Webhook Response Pending",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [3540, 400]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"success\": false,\n  \"error\": \"{{ $json.error.message }}\",\n  \"message\": \"Failed to generate video. Please try again.\"\n}",
+        "options": {
+          "responseCode": 500
+        }
+      },
+      "id": "webhook-response-error",
+      "name": "Webhook Response Error",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [900, 500]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Generate Script with GPT-4o",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Script with GPT-4o": {
+      "main": [
+        [
+          {
+            "node": "Parse Script JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Script JSON": {
+      "main": [
+        [
+          {
+            "node": "Search Pexels Videos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search Pexels Videos": {
+      "main": [
+        [
+          {
+            "node": "Extract Video URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Video URL": {
+      "main": [
+        [
+          {
+            "node": "Aggregate All Scenes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate All Scenes": {
+      "main": [
+        [
+          {
+            "node": "Prepare Voiceover Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Voiceover Text": {
+      "main": [
+        [
+          {
+            "node": "Generate Voiceover (Hume AI)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Voiceover (Hume AI)": {
+      "main": [
+        [
+          {
+            "node": "Wait 5 Seconds",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 5 Seconds": {
+      "main": [
+        [
+          {
+            "node": "Wait for Audio Generation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait for Audio Generation": {
+      "main": [
+        [
+          {
+            "node": "Extract Audio URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Audio URL": {
+      "main": [
+        [
+          {
+            "node": "Prepare Creatomate Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Creatomate Data": {
+      "main": [
+        [
+          {
+            "node": "Render Video (Creatomate)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Render Video (Creatomate)": {
+      "main": [
+        [
+          {
+            "node": "Wait 10 Seconds",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 10 Seconds": {
+      "main": [
+        [
+          {
+            "node": "Check Render Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Render Status": {
+      "main": [
+        [
+          {
+            "node": "If Render Complete",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If Render Complete": {
+      "main": [
+        [
+          {
+            "node": "Webhook Response Success",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Webhook Response Pending",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 1,
+  "updatedAt": "2025-01-16T00:00:00.000Z",
+  "versionId": "1"
+}

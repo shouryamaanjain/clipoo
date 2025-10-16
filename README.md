@@ -5,8 +5,8 @@ An intelligent, fully automated short-video generator that turns any topic into 
 ## Features
 
 - **AI-Powered Script Generation**: GPT-4o creates engaging, scene-based scripts optimized for short-form content
-- **Professional Voiceovers**: ElevenLabs generates natural-sounding narration
-- **Dynamic Stock Footage**: Automatically fetches relevant videos from Pexels and Pixabay
+- **Professional Voiceovers**: Hume AI generates emotionally expressive narration
+- **Dynamic Stock Footage**: Automatically fetches relevant videos from Pexels
 - **Auto-Generated Captions**: Synced text overlays from narration
 - **Studio-Quality Rendering**: Creatomate produces polished vertical videos (9:16 format)
 - **One-Click Generation**: Enter a topic and get a complete video in 30-90 seconds
@@ -23,9 +23,8 @@ An intelligent, fully automated short-video generator that turns any topic into 
 ### Backend (n8n Cloud Workflow)
 - **n8n Cloud** - Workflow automation engine
 - **OpenAI GPT-4o** - Script generation
-- **ElevenLabs** - AI voiceover synthesis
+- **Hume AI** - Emotionally expressive TTS voiceover synthesis
 - **Pexels API** - Stock video footage
-- **Pixabay API** - Fallback stock footage
 - **Creatomate** - Video composition and rendering
 
 ## Quick Start
@@ -36,9 +35,8 @@ An intelligent, fully automated short-video generator that turns any topic into 
 - npm or yarn package manager
 - API keys for:
   - OpenAI (GPT-4o)
-  - ElevenLabs
+  - Hume AI
   - Pexels
-  - Pixabay (optional)
   - Creatomate
 - n8n Cloud account
 
@@ -75,23 +73,24 @@ An intelligent, fully automated short-video generator that turns any topic into 
 
 ### n8n Workflow Setup
 
-The complete n8n workflow setup guide is available in [N8N_WORKFLOW_SETUP.md](./N8N_WORKFLOW_SETUP.md).
+**We provide a ready-to-import workflow JSON file!** 
+
+Import `n8n-workflow.json` directly into n8n Cloud and configure your API keys. See [N8N_WORKFLOW_IMPORT_GUIDE.md](./N8N_WORKFLOW_IMPORT_GUIDE.md) for complete setup instructions.
 
 **Quick Setup Steps:**
 
 1. Log into [n8n Cloud](https://app.n8n.cloud)
-2. Create a new workflow named "Clipoo - AI Video Generator"
-3. Add your API credentials in n8n:
-   - OpenAI API
-   - ElevenLabs API
-   - Pexels API
-   - Pixabay API (optional)
-   - Creatomate API
-4. Follow the detailed setup guide to build the workflow nodes
+2. Import the `n8n-workflow.json` file
+3. Configure API credentials for:
+   - OpenAI (GPT-4o)
+   - Hume AI (Text-to-Speech) 
+   - Pexels (Stock videos)
+   - Creatomate (Video rendering)
+4. Create a Creatomate template with required elements
 5. Activate the workflow and copy the webhook URL
 6. Add the webhook URL to your `.env.local` file
 
-For the complete step-by-step guide, see [N8N_WORKFLOW_SETUP.md](./N8N_WORKFLOW_SETUP.md).
+For the complete step-by-step guide, see [N8N_WORKFLOW_IMPORT_GUIDE.md](./N8N_WORKFLOW_IMPORT_GUIDE.md).
 
 ## How It Works
 
@@ -105,9 +104,10 @@ Frontend sends to n8n webhook
 GPT-4o generates scene-based script
       ↓
 For each scene:
-  ├─ Fetch stock video (Pexels/Pixabay)
-  ├─ Generate voiceover (ElevenLabs)
+  ├─ Fetch stock video (Pexels)
   └─ Extract keywords for visuals
+      ↓
+Generate voiceover (Hume AI)
       ↓
 Aggregate all scenes
       ↓
@@ -159,10 +159,11 @@ clipoo/
 │   ├── page.tsx           # Main video generator UI
 │   ├── layout.tsx         # Root layout with metadata
 │   └── globals.css        # Global styles
-├── public/                # Static assets
-├── .env.local.example     # Environment variable template
-├── N8N_WORKFLOW_SETUP.md  # n8n workflow setup guide
-└── README.md              # This file
+├── public/                      # Static assets
+├── .env.local.example           # Environment variable template
+├── n8n-workflow.json            # Ready-to-import n8n workflow
+├── N8N_WORKFLOW_IMPORT_GUIDE.md # Complete setup & import guide
+└── README.md                    # This file
 ```
 
 ### Available Scripts
@@ -191,23 +192,23 @@ Deploy to Vercel (recommended):
 
 ### n8n Workflow Issues
 
-See [N8N_WORKFLOW_SETUP.md](./N8N_WORKFLOW_SETUP.md) for detailed troubleshooting.
+See [N8N_WORKFLOW_IMPORT_GUIDE.md](./N8N_WORKFLOW_IMPORT_GUIDE.md) for detailed troubleshooting.
 
 ## Cost Estimates
 
 Per video generation:
-- **OpenAI GPT-4o**: ~$0.01
-- **ElevenLabs**: ~$0.05
-- **Pexels/Pixabay**: Free
-- **Creatomate**: Varies by plan
+- **OpenAI GPT-4o**: ~$0.01-0.03
+- **Hume AI**: ~$0.02-0.05
+- **Pexels**: Free
+- **Creatomate**: Included in subscription
 
-**Total**: ~$0.06-$0.20 per video (excluding Creatomate)
+**Total**: ~$0.03-0.08 per video (excluding Creatomate subscription)
 
 ## Support
 
 For issues or questions:
 - Open an issue on GitHub
-- Check [N8N_WORKFLOW_SETUP.md](./N8N_WORKFLOW_SETUP.md)
+- Check [N8N_WORKFLOW_IMPORT_GUIDE.md](./N8N_WORKFLOW_IMPORT_GUIDE.md)
 - Review [n8n documentation](https://docs.n8n.io)
 
 ## Author
